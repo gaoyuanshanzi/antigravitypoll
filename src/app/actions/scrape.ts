@@ -13,7 +13,7 @@ export async function scrapeAndSync(url: string, geminiKey: string) {
     });
     
     if (!response.ok) {
-      throw new Error(`Failed to fetch URL: ${response.statusText}`);
+      throw new Error(`웹페이지 접근 실패: ${response.statusText}`);
     }
 
     const html = await response.text();
@@ -21,15 +21,12 @@ export async function scrapeAndSync(url: string, geminiKey: string) {
     // 2. Extract text using cheerio
     const $ = cheerio.load(html);
     
-    // Remove scripts, styles, and other non-content tags
     $('script, style, noscript, iframe, img, svg').remove();
-    
-    // Get raw text and clean it up a bit (compress whitespaces)
     const rawText = $('body').text().replace(/\s+/g, ' ').trim();
-    const textSample = rawText.substring(0, 10000); // Limit context size
+    const textSample = rawText.substring(0, 10000); 
 
     // 3. Process with Gemini AI
-    const genAI = new GoogleGenerativeAI(geminiKey);
+    const genAI = new GoogleGenerativeAI(geminiKey.trim());
     
     const prompt = `
       다음 텍스트는 웹페이지에서 추출한 여론조사 데이터 기사 또는 문서입니다.
@@ -50,7 +47,6 @@ export async function scrapeAndSync(url: string, geminiKey: string) {
       ${textSample}
     `;
 
-    // Try multiple models in case some are not available (404)
     const modelsToTry = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-1.0-pro', 'gemini-pro'];
     let result = null;
     let lastError = null;
@@ -59,31 +55,40 @@ export async function scrapeAndSync(url: string, geminiKey: string) {
       try {
         const model = genAI.getGenerativeModel({ model: modelName });
         result = await model.generateContent(prompt);
-        console.log(`Successfully used model: ${modelName}`);
-        break; // Success, exit loop
+        break; 
       } catch (e: any) {
-        console.warn(`Failed with model ${modelName}:`, e.message);
         lastError = e;
-        // If it's a 404, we continue to the next model. 
-        // If it's auth error, we should probably stop, but we'll try anyway.
       }
     }
 
     if (!result) {
-      throw new Error(`모든 모델 시도 실패. 마지막 에러: ${lastError?.message}. API 키 권한이나 지역 제한을 확인해주세요.`);
+      // 에러 원인 파악을 위해 사용 가능한 모델 목록을 직접 조회해봅니다.
+      let availableModels = '';
+      try {
+        const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${geminiKey.trim()}`);
+        if (listRes.ok) {
+          const listData = await listRes.json();
+          const modelNames = listData.models.map((m: any) => m.name.replace('models/', '')).join(', ');
+          availableModels = `(현재 API 키로 사용 가능한 모델: ${modelNames})`;
+        } else {
+          availableModels = `(모델 목록 조회 실패: ${listRes.status} ${listRes.statusText})`;
+        }
+      } catch (err) {
+        availableModels = '(모델 목록 조회 불가)';
+      }
+      
+      throw new Error(`모든 모델 시도 실패. 입력하신 API 키가 Google AI Studio 키가 맞는지 확인해주세요. ${availableModels} / 마지막 에러: ${lastError?.message}`);
     }
 
     const responseText = result.response.text().trim();
-    
-    // Clean up markdown block if the model returned it despite instructions
     const jsonStr = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
     const parsedData = JSON.parse(jsonStr);
 
-    // 4. Return parsed data directly
     return { success: true, data: parsedData };
   } catch (error: any) {
     console.error('Scrape error:', error);
     return { success: false, error: error.message };
   }
 }
+
 
