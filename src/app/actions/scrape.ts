@@ -30,8 +30,7 @@ export async function scrapeAndSync(url: string, geminiKey: string) {
 
     // 3. Process with Gemini AI
     const genAI = new GoogleGenerativeAI(geminiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
-
+    
     const prompt = `
       다음 텍스트는 웹페이지에서 추출한 여론조사 데이터 기사 또는 문서입니다.
       이 텍스트에서 여론조사 날짜, 조사 기관명, 대통령 지지율(수치만), 주요 정당 지지율(수치만)을 추출해서 JSON 형태로 반환해주세요.
@@ -51,7 +50,29 @@ export async function scrapeAndSync(url: string, geminiKey: string) {
       ${textSample}
     `;
 
-    const result = await model.generateContent(prompt);
+    // Try multiple models in case some are not available (404)
+    const modelsToTry = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-1.0-pro', 'gemini-pro'];
+    let result = null;
+    let lastError = null;
+
+    for (const modelName of modelsToTry) {
+      try {
+        const model = genAI.getGenerativeModel({ model: modelName });
+        result = await model.generateContent(prompt);
+        console.log(`Successfully used model: ${modelName}`);
+        break; // Success, exit loop
+      } catch (e: any) {
+        console.warn(`Failed with model ${modelName}:`, e.message);
+        lastError = e;
+        // If it's a 404, we continue to the next model. 
+        // If it's auth error, we should probably stop, but we'll try anyway.
+      }
+    }
+
+    if (!result) {
+      throw new Error(`모든 모델 시도 실패. 마지막 에러: ${lastError?.message}. API 키 권한이나 지역 제한을 확인해주세요.`);
+    }
+
     const responseText = result.response.text().trim();
     
     // Clean up markdown block if the model returned it despite instructions
