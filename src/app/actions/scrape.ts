@@ -2,7 +2,6 @@
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import * as cheerio from 'cheerio';
-import { supabase } from '@/lib/supabase';
 
 export async function scrapeAndSync(url: string, geminiKey: string) {
   try {
@@ -39,13 +38,12 @@ export async function scrapeAndSync(url: string, geminiKey: string) {
       반환되는 JSON 형식은 정확히 다음 형식을 따라야 하며 마크다운 코드 블록 없이 순수한 JSON 문자열만 반환하세요.
 
       {
-        "poll_date": "YYYY-MM-DD", (가장 최근 조사 날짜 또는 기사 날짜)
+        "poll_date": "YYYY-MM-DD",
         "agency": "조사 기관명",
-        "president_approval": 35.5, (숫자 형태)
+        "president_approval": 35.5,
         "party_approval": {
           "국민의힘": 30.5,
-          "더불어민주당": 32.1,
-          "기타": 5.0
+          "더불어민주당": 32.1
         }
       }
 
@@ -60,26 +58,11 @@ export async function scrapeAndSync(url: string, geminiKey: string) {
     const jsonStr = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
     const parsedData = JSON.parse(jsonStr);
 
-    // 4. Save to Supabase
-    const { data, error } = await supabase
-      .from('polls')
-      .insert([
-        {
-          poll_date: parsedData.poll_date,
-          agency: parsedData.agency,
-          president_approval: parsedData.president_approval,
-          party_approval: parsedData.party_approval,
-        }
-      ])
-      .select();
-
-    if (error) {
-      throw new Error(`Supabase Insert Error: ${error.message}`);
-    }
-
-    return { success: true, data };
+    // 4. Return parsed data directly
+    return { success: true, data: parsedData };
   } catch (error: any) {
     console.error('Scrape error:', error);
     return { success: false, error: error.message };
   }
 }
+

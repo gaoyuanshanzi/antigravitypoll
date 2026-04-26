@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
 import { scrapeAndSync } from './actions/scrape';
 import {
   LineChart,
@@ -14,7 +13,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts';
-import { LogOut, Play, RefreshCw, Settings } from 'lucide-react';
+import { LogOut, Play, RefreshCw, Settings, Trash2 } from 'lucide-react';
 
 export default function Dashboard() {
   const router = useRouter();
@@ -34,23 +33,22 @@ export default function Dashboard() {
     setLoading(true);
     const dateLimit = new Date();
     dateLimit.setMonth(dateLimit.getMonth() - months);
+    const limitDateStr = dateLimit.toISOString().split('T')[0];
 
-    const { data: polls, error } = await supabase
-      .from('polls')
-      .select('*')
-      .gte('poll_date', dateLimit.toISOString().split('T')[0])
-      .order('poll_date', { ascending: true });
+    const storedData = localStorage.getItem('polls');
+    let polls = storedData ? JSON.parse(storedData) : [];
 
-    if (!error && polls) {
-      // Transform data for Recharts
-      const chartData = polls.map((poll) => ({
-        name: poll.poll_date,
-        '대통령 지지율': poll.president_approval,
-        '국민의힘': poll.party_approval['국민의힘'] || 0,
-        '더불어민주당': poll.party_approval['더불어민주당'] || 0,
-      }));
-      setData(chartData);
-    }
+    polls = polls.filter((poll: any) => poll.poll_date >= limitDateStr);
+    polls.sort((a: any, b: any) => new Date(a.poll_date).getTime() - new Date(b.poll_date).getTime());
+
+    // Transform data for Recharts
+    const chartData = polls.map((poll: any) => ({
+      name: poll.poll_date,
+      '대통령 지지율': poll.president_approval,
+      '국민의힘': poll.party_approval?.['국민의힘'] || 0,
+      '더불어민주당': poll.party_approval?.['더불어민주당'] || 0,
+    }));
+    setData(chartData);
     setLoading(false);
   };
 
@@ -66,13 +64,36 @@ export default function Dashboard() {
     }
     setScraping(true);
     const result = await scrapeAndSync(url, geminiKey);
-    if (result.success) {
-      alert('데이터 동기화 완료!');
+    if (result.success && result.data) {
+      const storedData = localStorage.getItem('polls');
+      let polls = storedData ? JSON.parse(storedData) : [];
+      
+      // 중복 체크 로직 추가 (날짜와 기관이 같으면 덮어쓰기)
+      const existingIndex = polls.findIndex(
+        (p: any) => p.poll_date === result.data.poll_date && p.agency === result.data.agency
+      );
+      
+      if (existingIndex >= 0) {
+        polls[existingIndex] = result.data;
+      } else {
+        polls.push(result.data);
+      }
+      
+      localStorage.setItem('polls', JSON.stringify(polls));
+      
+      alert('데이터 스크래핑 완료!');
       fetchData();
     } else {
       alert(`오류 발생: ${result.error}`);
     }
     setScraping(false);
+  };
+
+  const handleClearData = () => {
+    if (confirm('저장된 모든 여론조사 데이터를 삭제하시겠습니까?')) {
+      localStorage.removeItem('polls');
+      fetchData();
+    }
   };
 
   return (
@@ -105,7 +126,13 @@ export default function Dashboard() {
           </ul>
         </div>
 
-        <div className="p-4 border-t border-yellow-500/20">
+        <div className="p-4 border-t border-yellow-500/20 flex flex-col gap-2">
+          <button
+            onClick={handleClearData}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm text-gray-400 hover:text-orange-400 hover:bg-orange-400/10 rounded-md transition-colors"
+          >
+            <Trash2 className="w-4 h-4" /> 데이터 초기화
+          </button>
           <button
             onClick={handleLogout}
             className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm text-gray-400 hover:text-red-400 hover:bg-red-400/10 rounded-md transition-colors"
