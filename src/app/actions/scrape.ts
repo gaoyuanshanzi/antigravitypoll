@@ -47,7 +47,16 @@ export async function scrapeAndSync(url: string, geminiKey: string) {
       ${textSample}
     `;
 
-    const modelsToTry = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-1.0-pro', 'gemini-pro'];
+    const modelsToTry = [
+      'gemini-2.5-flash', 
+      'gemini-2.5-pro', 
+      'gemini-2.0-flash', 
+      'gemini-flash-latest', 
+      'gemini-pro-latest', 
+      'gemini-1.5-flash', 
+      'gemini-1.5-pro', 
+      'gemini-pro'
+    ];
     let result = null;
     let lastError = null;
 
