@@ -24,6 +24,7 @@ export default function Dashboard() {
   
   const [url, setUrl] = useState('');
   const [geminiKey, setGeminiKey] = useState('');
+  const [file, setFile] = useState<File | null>(null);
 
   useEffect(() => {
     fetchData();
@@ -58,12 +59,23 @@ export default function Dashboard() {
   };
 
   const handleScrape = async () => {
-    if (!url || !geminiKey) {
-      alert('URL과 Gemini API Key를 모두 입력해주세요.');
+    if ((!url && !file) || !geminiKey) {
+      alert('데이터 소스(URL 또는 파일)와 Gemini API Key를 입력해주세요.');
       return;
     }
     setScraping(true);
-    const result = await scrapeAndSync(url, geminiKey);
+
+    let base64Data = undefined;
+    let mimeType = undefined;
+
+    if (file) {
+      const arrayBuffer = await file.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      base64Data = buffer.toString('base64');
+      mimeType = file.type;
+    }
+
+    const result = await scrapeAndSync(url, geminiKey, base64Data, mimeType);
     if (result.success && result.data) {
       const storedData = localStorage.getItem('polls');
       let polls = storedData ? JSON.parse(storedData) : [];
@@ -81,7 +93,8 @@ export default function Dashboard() {
       
       localStorage.setItem('polls', JSON.stringify(polls));
       
-      alert('데이터 스크래핑 완료!');
+      alert('데이터 분석 및 동기화 완료!');
+      setFile(null); // Reset file input after success
       fetchData();
     } else {
       alert(`오류 발생: ${result.error}`);
@@ -145,33 +158,45 @@ export default function Dashboard() {
       {/* Main Content */}
       <main className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
-        <header className="border-b border-yellow-500/20 bg-[#0a0a0a] p-4 flex items-center gap-4">
-          <div className="flex-1 flex gap-4">
+        <header className="border-b border-yellow-500/20 bg-[#0a0a0a] p-4 flex flex-col gap-4">
+          <div className="flex gap-4 items-center">
             <input
               type="password"
               placeholder="Gemini API Key"
               value={geminiKey}
               onChange={(e) => setGeminiKey(e.target.value)}
-              className="flex-1 max-w-md rounded-md bg-black border border-gray-800 px-4 py-2 text-sm focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500 outline-none"
+              className="w-1/3 rounded-md bg-black border border-gray-800 px-4 py-2 text-sm focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500 outline-none"
             />
-            <input
-              type="text"
-              placeholder="데이터 소스 URL (여론조사 기사 등)"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              className="flex-1 rounded-md bg-black border border-gray-800 px-4 py-2 text-sm focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500 outline-none"
-            />
+            <div className="flex-1 flex gap-2">
+              <input
+                type="text"
+                placeholder="데이터 소스 URL (여론조사 기사 등)"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                className="flex-1 rounded-md bg-black border border-gray-800 px-4 py-2 text-sm focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500 outline-none"
+              />
+              <span className="text-gray-500 text-sm py-2">또는</span>
+              <input
+                type="file"
+                accept="application/pdf, image/*"
+                onChange={(e) => setFile(e.target.files?.[0] || null)}
+                className="flex-1 rounded-md bg-black border border-gray-800 px-4 py-1.5 text-sm file:mr-4 file:py-1 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-yellow-500/10 file:text-yellow-500 hover:file:bg-yellow-500/20"
+              />
+            </div>
+            <button
+              onClick={handleScrape}
+              disabled={scraping}
+              className={`flex items-center gap-2 px-6 py-2 rounded-md font-medium text-black transition-all whitespace-nowrap ${
+                scraping ? 'bg-yellow-600 cursor-wait' : 'bg-yellow-500 hover:bg-yellow-400'
+              }`}
+            >
+              {scraping ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+              {scraping ? '분석 중...' : '데이터 동기화'}
+            </button>
           </div>
-          <button
-            onClick={handleScrape}
-            disabled={scraping}
-            className={`flex items-center gap-2 px-6 py-2 rounded-md font-medium text-black transition-all ${
-              scraping ? 'bg-yellow-600 cursor-wait' : 'bg-yellow-500 hover:bg-yellow-400'
-            }`}
-          >
-            {scraping ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-            {scraping ? '동기화 중...' : '데이터 동기화'}
-          </button>
+          <p className="text-xs text-gray-500">
+            * 선관위 홈페이지의 여론조사 결과 PDF나 캡처 이미지를 첨부하면 URL보다 훨씬 더 빠르고 정확하게 분석할 수 있습니다.
+          </p>
         </header>
 
         {/* Chart Area */}
