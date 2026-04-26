@@ -30,7 +30,7 @@ export async function scrapeAndSync(url: string, geminiKey: string) {
 
     // 3. Process with Gemini AI
     const genAI = new GoogleGenerativeAI(geminiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
 
     const prompt = `
       다음 텍스트는 웹페이지에서 추출한 여론조사 데이터 기사 또는 문서입니다.
