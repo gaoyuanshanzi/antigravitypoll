@@ -24,7 +24,8 @@ export default function Dashboard() {
   
   const [url, setUrl] = useState('');
   const [geminiKey, setGeminiKey] = useState('');
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const [progress, setProgress] = useState({ current: 0, total: 0 });
 
   useEffect(() => {
     fetchData();
@@ -58,48 +59,97 @@ export default function Dashboard() {
     router.push('/login');
   };
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      setFiles((prev) => [...prev, ...Array.from(e.target.files as FileList)]);
+    }
+  };
+
+  const removeFile = (indexToRemove: number) => {
+    setFiles((prev) => prev.filter((_, index) => index !== indexToRemove));
+  };
+
   const handleScrape = async () => {
-    if ((!url && !file) || !geminiKey) {
+    if ((!url && files.length === 0) || !geminiKey) {
       alert('데이터 소스(URL 또는 파일)와 Gemini API Key를 입력해주세요.');
       return;
     }
     setScraping(true);
 
-    let base64Data = undefined;
-    let mimeType = undefined;
+    let hasError = false;
 
-    if (file) {
-      const arrayBuffer = await file.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
-      base64Data = buffer.toString('base64');
-      mimeType = file.type;
-    }
+    if (files.length > 0) {
+      setProgress({ current: 0, total: files.length });
+      
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        setProgress({ current: i + 1, total: files.length });
+        
+        const arrayBuffer = await file.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        const base64Data = buffer.toString('base64');
+        const mimeType = file.type;
 
-    const result = await scrapeAndSync(url, geminiKey, base64Data, mimeType);
-    if (result.success && result.data) {
-      const storedData = localStorage.getItem('polls');
-      let polls = storedData ? JSON.parse(storedData) : [];
-      
-      // 중복 체크 로직 추가 (날짜와 기관이 같으면 덮어쓰기)
-      const existingIndex = polls.findIndex(
-        (p: any) => p.poll_date === result.data.poll_date && p.agency === result.data.agency
-      );
-      
-      if (existingIndex >= 0) {
-        polls[existingIndex] = result.data;
-      } else {
-        polls.push(result.data);
+        const result = await scrapeAndSync(url, geminiKey, base64Data, mimeType);
+        
+        if (result.success && result.data) {
+          const storedData = localStorage.getItem('polls');
+          let polls = storedData ? JSON.parse(storedData) : [];
+          
+          const existingIndex = polls.findIndex(
+            (p: any) => p.poll_date === result.data.poll_date && p.agency === result.data.agency
+          );
+          
+          if (existingIndex >= 0) {
+            polls[existingIndex] = result.data;
+          } else {
+            polls.push(result.data);
+          }
+          
+          localStorage.setItem('polls', JSON.stringify(polls));
+          // 실시간으로 차트를 갱신합니다.
+          await fetchData();
+        } else {
+          console.error(`파일 ${file.name} 처리 중 오류:`, result.error);
+          alert(`'${file.name}' 처리 중 오류 발생: ${result.error}`);
+          hasError = true;
+          break; // 에러 발생 시 진행 중단
+        }
       }
-      
-      localStorage.setItem('polls', JSON.stringify(polls));
-      
-      alert('데이터 분석 및 동기화 완료!');
-      setFile(null); // Reset file input after success
-      fetchData();
     } else {
-      alert(`오류 발생: ${result.error}`);
+      // URL만 입력된 경우 단일 처리
+      setProgress({ current: 1, total: 1 });
+      const result = await scrapeAndSync(url, geminiKey, undefined, undefined);
+      if (result.success && result.data) {
+        const storedData = localStorage.getItem('polls');
+        let polls = storedData ? JSON.parse(storedData) : [];
+        
+        const existingIndex = polls.findIndex(
+          (p: any) => p.poll_date === result.data.poll_date && p.agency === result.data.agency
+        );
+        
+        if (existingIndex >= 0) {
+          polls[existingIndex] = result.data;
+        } else {
+          polls.push(result.data);
+        }
+        
+        localStorage.setItem('polls', JSON.stringify(polls));
+        await fetchData();
+      } else {
+        alert(`오류 발생: ${result.error}`);
+        hasError = true;
+      }
     }
+
+    if (!hasError) {
+      alert('데이터 분석 및 동기화 완료!');
+      setFiles([]); // 모든 파일 처리 완료 후 비우기
+      setUrl('');
+    }
+    
     setScraping(false);
+    setProgress({ current: 0, total: 0 });
   };
 
   const handleClearData = () => {
@@ -159,7 +209,7 @@ export default function Dashboard() {
       <main className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
         <header className="border-b border-yellow-500/20 bg-[#0a0a0a] p-4 flex flex-col gap-4">
-          <div className="flex gap-4 items-center">
+          <div className="flex gap-4 items-start">
             <input
               type="password"
               placeholder="Gemini API Key"
@@ -167,35 +217,62 @@ export default function Dashboard() {
               onChange={(e) => setGeminiKey(e.target.value)}
               className="w-1/3 rounded-md bg-black border border-gray-800 px-4 py-2 text-sm focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500 outline-none"
             />
-            <div className="flex-1 flex gap-2">
-              <input
-                type="text"
-                placeholder="데이터 소스 URL (여론조사 기사 등)"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                className="flex-1 rounded-md bg-black border border-gray-800 px-4 py-2 text-sm focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500 outline-none"
-              />
-              <span className="text-gray-500 text-sm py-2">또는</span>
-              <input
-                type="file"
-                accept="application/pdf, image/*"
-                onChange={(e) => setFile(e.target.files?.[0] || null)}
-                className="flex-1 rounded-md bg-black border border-gray-800 px-4 py-1.5 text-sm file:mr-4 file:py-1 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-yellow-500/10 file:text-yellow-500 hover:file:bg-yellow-500/20"
-              />
+            <div className="flex-1 flex flex-col gap-2">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="데이터 소스 URL (여론조사 기사 등)"
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  className="flex-1 rounded-md bg-black border border-gray-800 px-4 py-2 text-sm focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500 outline-none"
+                />
+                <span className="text-gray-500 text-sm py-2">또는</span>
+                <input
+                  type="file"
+                  multiple
+                  accept="application/pdf, image/*"
+                  onChange={handleFileChange}
+                  className="flex-1 rounded-md bg-black border border-gray-800 px-4 py-1.5 text-sm file:mr-4 file:py-1 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-yellow-500/10 file:text-yellow-500 hover:file:bg-yellow-500/20"
+                />
+              </div>
+              
+              {/* Selected Files List */}
+              {files.length > 0 && (
+                <div className="bg-black border border-gray-800 rounded-md p-2 max-h-32 overflow-y-auto">
+                  <div className="text-xs text-yellow-500 mb-2 font-medium">선택된 파일 ({files.length}개)</div>
+                  <ul className="space-y-1">
+                    {files.map((f, idx) => (
+                      <li key={idx} className="flex justify-between items-center text-sm bg-gray-900 px-2 py-1 rounded">
+                        <span className="truncate text-gray-300 max-w-[80%]">{f.name}</span>
+                        <button
+                          onClick={() => removeFile(idx)}
+                          disabled={scraping}
+                          className="text-gray-500 hover:text-red-400 p-1 rounded transition-colors"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
+
             <button
               onClick={handleScrape}
               disabled={scraping}
-              className={`flex items-center gap-2 px-6 py-2 rounded-md font-medium text-black transition-all whitespace-nowrap ${
+              className={`flex items-center gap-2 px-6 py-2 rounded-md font-medium text-black transition-all whitespace-nowrap mt-0.5 ${
                 scraping ? 'bg-yellow-600 cursor-wait' : 'bg-yellow-500 hover:bg-yellow-400'
               }`}
             >
               {scraping ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-              {scraping ? '분석 중...' : '데이터 동기화'}
+              {scraping 
+                ? (progress.total > 1 ? `분석 중 (${progress.current}/${progress.total})...` : '분석 중...') 
+                : '데이터 동기화'}
             </button>
           </div>
           <p className="text-xs text-gray-500">
-            * 선관위 홈페이지의 여론조사 결과 PDF나 캡처 이미지를 첨부하면 URL보다 훨씬 더 빠르고 정확하게 분석할 수 있습니다.
+            * 선관위 홈페이지의 여론조사 결과 PDF나 캡처 이미지를 첨부하면 URL보다 훨씬 더 빠르고 정확하게 분석할 수 있습니다. (여러 개 동시 업로드 지원)
           </p>
         </header>
 
