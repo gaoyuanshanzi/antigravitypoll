@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { scrapeAndSync } from './actions/scrape';
+import * as XLSX from 'xlsx';
 import {
   LineChart,
   Line,
@@ -43,7 +44,6 @@ export default function Dashboard() {
     polls = polls.filter((poll: any) => poll.poll_date >= limitDateStr);
     polls.sort((a: any, b: any) => new Date(a.poll_date).getTime() - new Date(b.poll_date).getTime());
 
-    // Transform data for Recharts
     const chartData = polls.map((poll: any) => ({
       name: poll.poll_date,
       '대통령 지지율': poll.president_approval,
@@ -85,10 +85,33 @@ export default function Dashboard() {
         const file = files[i];
         setProgress({ current: i + 1, total: files.length });
         
-        const arrayBuffer = await file.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
-        const base64Data = buffer.toString('base64');
-        const mimeType = file.type;
+        let base64Data = '';
+        let mimeType = '';
+
+        if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls') || file.name.endsWith('.csv')) {
+          try {
+            const arrayBuffer = await file.arrayBuffer();
+            const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+            let csvText = '';
+            for (const sheetName of workbook.SheetNames) {
+              csvText += `\n--- Sheet: ${sheetName} ---\n`;
+              csvText += XLSX.utils.sheet_to_csv(workbook.Sheets[sheetName]);
+            }
+            // 브라우저 환경에서 안전하게 base64 인코딩
+            base64Data = Buffer.from(csvText, 'utf8').toString('base64');
+            mimeType = 'text/csv';
+          } catch (err: any) {
+            console.error('Excel parsing error:', err);
+            alert(`'${file.name}' 파싱 오류: ${err.message}`);
+            hasError = true;
+            break;
+          }
+        } else {
+          const arrayBuffer = await file.arrayBuffer();
+          const buffer = Buffer.from(arrayBuffer);
+          base64Data = buffer.toString('base64');
+          mimeType = file.type;
+        }
 
         const result = await scrapeAndSync(url, geminiKey, base64Data, mimeType);
         
@@ -230,7 +253,7 @@ export default function Dashboard() {
                 <input
                   type="file"
                   multiple
-                  accept="application/pdf, image/*"
+                  accept="application/pdf, image/*, .xlsx, .xls, .csv"
                   onChange={handleFileChange}
                   className="flex-1 rounded-md bg-black border border-gray-800 px-4 py-1.5 text-sm file:mr-4 file:py-1 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-yellow-500/10 file:text-yellow-500 hover:file:bg-yellow-500/20"
                 />
